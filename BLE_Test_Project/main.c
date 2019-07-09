@@ -2,7 +2,7 @@
    Licensed under the MIT License. */
 
    /************************************************************************************************
-   Name:		Avnet_LSM6DS0
+   Name:		BLE_Test_Project
    Sphere OS:	19.02
    This file contains the 'main' function. Program execution begins and ends there
 
@@ -10,7 +10,7 @@
    Peter Fenn (Avnet Engineering & Technology)
 
    Purpose:
-   Sphere Starter Kit accelerometer test 
+   Sphere Starter Kit BLE test project
 
    Description:
    ...
@@ -56,6 +56,7 @@ static char str[512];
 // File descriptors - initialized to invalid value
 static int epollFd = -1;
 static int uartFd = -1;
+static int uartBleFd = -1;
 
 // Termination state
 static volatile sig_atomic_t terminationRequired = false;
@@ -85,6 +86,8 @@ static int InitPeripheralsAndHandlers(void)
 	uartConfig.dataBits = UART_DataBits_Eight;
 
 	uartFd = UART_Open(MT3620_UART_ISU0, &uartConfig);
+	uartConfig.flowControl = UART_FlowControl_RTSCTS;
+	uartFd = UART_Open(MT3620_UART_ISU1, &uartConfig);
 	SendUartMessage(uartFd, "Uart is up\n");
 
     epollFd = CreateEpollFd();
@@ -131,8 +134,9 @@ static void ClosePeripheralsAndHandlers(void)
 {
     Log_Debug("Closing file descriptors.\n");
 	SendUartMessage(uartFd, "Closing file descriptors.\n");
-	CloseFdAndPrintError(uartFd, "Uart");
+	CloseFdAndPrintError(uartBleFd, "Uart1");
     CloseFdAndPrintError(epollFd, "Epoll");
+	CloseFdAndPrintError(uartFd, "Uart");
 }
 
 /// <summary>
