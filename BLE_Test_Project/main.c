@@ -21,10 +21,6 @@
 #include "epoll_timerfd_utilities.h"
 
 #include <applibs/log.h>
-/* This is here due to the documenation from microsoft 
- * See URL https://docs.microsoft.com/en-us/azure-sphere/app-development/uart#feedback
- */
-//#define UART_STRUCTS_VERSION 1
 #include <applibs/uart.h>
 #include <applibs/networking.h>
 
@@ -43,13 +39,15 @@
 // Support functions.
 static int InitPeripheralsAndHandlers(void);
 static void ClosePeripheralsAndHandlers(void);
-static void SendUartMessage(int uartFd, const char *dataToSend);
+static void SendUartMessage(int UartFileDis, const char *dataToSend);
 static void uartEventDebugData(EventData *eventData);
 static void uartEventBleData(EventData *eventData);
 
 static char str[512];
 
 // File descriptors - initialized to invalid value
+static EventData uartDebugEventDataHandler = { .eventHandler = &uartEventDebugData };
+static EventData uartBleEventDataHandler = { .eventHandler = &uartEventBleData };
 static int epollFd = -1;
 static int uartFd = -1;
 static int uartBleFd = -1;
@@ -60,6 +58,8 @@ static volatile sig_atomic_t terminationRequired = false;
 static void TerminationHandler(int signalNumber)
 {
 	// Don't use Log_Debug here, as it is not guaranteed to be async-signal-safe.
+	snprintf(str, sizeof(str), "Sig RX (%d).\n", signalNumber);
+	SendUartMessage(uartFd, str);
 	terminationRequired = true;
 }
 
@@ -75,7 +75,9 @@ static void uartEventDebugData(EventData *eventData)
 	// Read UART message
 	bytesRead = read(uartFd, receiveBuffer, receiveBufferSize);
 	if (bytesRead < 0) {
-		Log_Debug("ERROR: Could not read UART: %s (%d).\n", strerror(errno), errno);
+		snprintf(str, sizeof(str), "ERROR: Could not read debug UART: %s (%d).\n", strerror(errno), errno);
+		Log_Debug(str);
+		SendUartMessage(uartFd, str);
 		terminationRequired = true;
 		return;
 	}
@@ -85,7 +87,7 @@ static void uartEventDebugData(EventData *eventData)
 		receiveBuffer[bytesRead] = 0;
 
 		/* Pass the data to the debug port */
-		SendUartMessage(uartFd, ( char* )receiveBuffer);
+		SendUartMessage(uartBleFd, (char*)receiveBuffer);
 	}
 }
 
@@ -99,9 +101,11 @@ static void uartEventBleData(EventData *eventData)
 	ssize_t bytesRead;
 
 	// Read UART message
-	bytesRead = read(uartFd, receiveBuffer, receiveBufferSize);
+	bytesRead = read(uartBleFd, receiveBuffer, receiveBufferSize);
 	if (bytesRead < 0) {
-		Log_Debug("ERROR: Could not read UART: %s (%d).\n", strerror(errno), errno);
+		snprintf(str, sizeof(str), "ERROR: Could not read Ble UART: %s (%d).\n", strerror(errno), errno);
+		Log_Debug(str);
+		SendUartMessage(uartFd, str);
 		terminationRequired = true;
 		return;
 	}
@@ -111,7 +115,7 @@ static void uartEventBleData(EventData *eventData)
 		receiveBuffer[bytesRead] = 0;
 
 		/* Pass the data to the Nordic */
-		SendUartMessage(uartBleFd, (char*)receiveBuffer);
+		SendUartMessage(uartFd, (char*)receiveBuffer);
 	}
 }
 
@@ -132,14 +136,23 @@ static int InitPeripheralsAndHandlers(void)
 	uartConfig.baudRate = 115200;
 	uartConfig.flowControl = UART_FlowControl_None;
 	uartConfig.dataBits = UART_DataBits_Eight;
+	uartConfig.stopBits = UART_StopBits_One;
 	
 	UART_Config uartConfig1;
 	UART_InitConfig(&uartConfig1);
 	uartConfig1.baudRate = 115200;
 	uartConfig1.dataBits = UART_DataBits_Eight;
-	uartConfig1.flowControl = UART_FlowControl_None;
+	uartConfig1.flowControl =  UART_FlowControl_None;
+	uartConfig1.stopBits = UART_StopBits_One;
 
-	uartFd = UART_Open(MT3620_UART_ISU0, &uartConfig);
+	epollFd = CreateEpollFd();
+	if (epollFd < 0)
+	{
+		SendUartMessage(uartFd, "Failed to bring up the epollFD\n");
+		return ERROR_RET;
+	}
+
+	uartFd = UART_Open(MT3620_UART_ISU1, &uartConfig);
 	if (uartFd > 0)
 	{
 		SendUartMessage(uartFd, "Uart is up\n");
@@ -150,13 +163,13 @@ static int InitPeripheralsAndHandlers(void)
 		return ERROR_RET;
 	}
 
-	if (RegisterEventHandlerToEpoll(epollFd, uartFd, &uartEventDebugData, EPOLLIN) != 0) {
+	if (RegisterEventHandlerToEpoll(epollFd, uartFd, &uartDebugEventDataHandler, EPOLLIN) != 0) 
+	{
+		Log_Debug("Failed register debug uart rx event\n");
 		return ERROR_RET;
 	}
 
-	//Enable the HW Flow control for the BLE module
-	
-	uartBleFd = UART_Open(MT3620_UART_ISU1, &uartConfig1);
+	uartBleFd = UART_Open(MT3620_UART_ISU0, &uartConfig1);
 	if (uartBleFd > 0)
 	{
 		SendUartMessage(uartFd, "BLE Uart is up\n");
@@ -167,16 +180,12 @@ static int InitPeripheralsAndHandlers(void)
 		return ERROR_RET;
 	}
 
-	if (RegisterEventHandlerToEpoll(epollFd, uartBleFd, &uartEventBleData, EPOLLIN) != 0) {
+	if (RegisterEventHandlerToEpoll(epollFd, uartBleFd, &uartBleEventDataHandler, EPOLLIN) != 0) 
+	{
+		Log_Debug("Failed register uart BLE rx event\n");
 		return ERROR_RET;
 	}
 
-    epollFd = CreateEpollFd();
-    if (epollFd < 0) 
-	{
-		SendUartMessage(uartFd, "Failed to bring up the epollFD\n");
-        return ERROR_RET;
-    }
     return SUCCESS_RET;
 }
 
@@ -185,7 +194,7 @@ static int InitPeripheralsAndHandlers(void)
 /// </summary>
 /// <param name="uartFd">The open file descriptor of the UART to write to</param>
 /// <param name="dataToSend">The data to send over the UART</param>
-static void SendUartMessage(int uartFd, const char *dataToSend)
+static void SendUartMessage(int UartFileDis, const char *dataToSend)
 {
 	size_t totalBytesSent = 0;
 	size_t totalBytesToSend = strlen(dataToSend);
@@ -196,11 +205,10 @@ static void SendUartMessage(int uartFd, const char *dataToSend)
 		// Send as much of the remaining data as possible
 		size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
 		const char *remainingMessageToSend = dataToSend + totalBytesSent;
-		ssize_t bytesSent = write(uartFd, remainingMessageToSend, bytesLeftToSend);
+		ssize_t bytesSent = write(UartFileDis, remainingMessageToSend, bytesLeftToSend);
 		if (bytesSent < 0) {
 			snprintf(str, sizeof(str), "ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
 			Log_Debug( str );
-			SendUartMessage(uartFd, str );
 			terminationRequired = true;
 			return;
 		}
@@ -229,12 +237,12 @@ static void ClosePeripheralsAndHandlers(void)
 /// </summary>
 int main(int argc, char *argv[])
 {		
-	Log_Debug("I2C accelerometer application starting.\n");
+	Log_Debug("BLE Demo UART Starting.\n");
     if (InitPeripheralsAndHandlers() != 0) {
         terminationRequired = true;
     }
 
-	SendUartMessage(uartFd, "I2C accelerometer application starting.\n");
+	SendUartMessage(uartFd, "BLE Demo UART Starting.\n");
 
     // Use epoll to wait for events and trigger handlers, until an error or SIGTERM happens
     while (!terminationRequired) {

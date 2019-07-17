@@ -9,7 +9,7 @@
     "AllowedTcpServerPorts": [],
     "AllowedUdpServerPorts": [],
     "Gpio": [],
-    "Uart": [ "ISU1", "ISU0" ],
+    "Uart": [ "ISU0", "ISU1" ],
     "I2cMaster": [],
     "SpiMaster": [],
     "WifiConfig": false,
