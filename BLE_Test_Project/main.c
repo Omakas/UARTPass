@@ -28,6 +28,14 @@
 #include "mt3620_avnet_dev.h"
 #include "mt3620_rdb.h"
 
+// Azure IoT SDK
+#include <iothub_client_core_common.h>
+#include <iothub_device_client_ll.h>
+#include <iothub_client_options.h>
+#include <iothubtransportmqtt.h>
+#include <iothub.h>
+#include <azure_sphere_provisioning.h>
+
 /* Uncomment the below define to enable debugging of the debug UART */
 //#define DEBUG_DEBUG_UART
 
