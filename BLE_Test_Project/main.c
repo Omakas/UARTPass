@@ -85,7 +85,7 @@ static void uartEventDebugData(EventData *eventData)
 	if (bytesRead < 0) {
 		snprintf(str, sizeof(str), "ERROR: Could not read debug UART: %s (%d).\n", strerror(errno), errno);
 		Log_Debug(str);
-		SendUartMessage(uartFd, str);
+		//SendUartMessage(uartFd, str);
 		terminationRequired = true;
 		return;
 	}
@@ -93,7 +93,6 @@ static void uartEventDebugData(EventData *eventData)
 	if (bytesRead > 0) {
 		// Null terminate the buffer to make it a valid string, and print it
 		receiveBuffer[bytesRead] = 0;
-
 		/* Pass the data to the debug port */
 		SendUartMessage(uartBleFd, (char*)receiveBuffer);
 	}
@@ -113,7 +112,7 @@ static void uartEventBleData(EventData *eventData)
 	if (bytesRead < 0) {
 		snprintf(str, sizeof(str), "ERROR: Could not read Ble UART: %s (%d).\n", strerror(errno), errno);
 		Log_Debug(str);
-		SendUartMessage(uartFd, str);
+		//SendUartMessage(uartFd, str);
 		terminationRequired = true;
 		return;
 	}
@@ -213,7 +212,7 @@ static void SendUartMessage(int UartFileDis, const char *dataToSend)
 		// Send as much of the remaining data as possible
 		size_t bytesLeftToSend = totalBytesToSend - totalBytesSent;
 		const char *remainingMessageToSend = dataToSend + totalBytesSent;
-		ssize_t bytesSent = write(UartFileDis, remainingMessageToSend, bytesLeftToSend);
+		size_t bytesSent = write(UartFileDis, remainingMessageToSend, bytesLeftToSend);
 		if (bytesSent < 0) {
 			snprintf(str, sizeof(str), "ERROR: Could not write to UART: %s (%d).\n", strerror(errno), errno);
 			Log_Debug( str );
@@ -251,6 +250,7 @@ int main(int argc, char *argv[])
     }
 
 	SendUartMessage(uartFd, "BLE Demo UART Starting.\n");
+	SendUartMessage(uartBleFd, "pwr\r");
 
     // Use epoll to wait for events and trigger handlers, until an error or SIGTERM happens
     while (!terminationRequired) {
